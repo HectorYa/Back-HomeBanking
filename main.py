@@ -1,10 +1,13 @@
 """HOMEBANKING — Backend FastAPI · Banca Internet Banco Andino.
 
 Portal del CLIENTE. Proyecto separado del core bancario; se conecta a la base
-PostgreSQL YA EXISTENTE bd_core_financiero (no crea tablas). Corre en el puerto 8002.
+PostgreSQL YA EXISTENTE bd_core_financiero (no crea tablas).
 
-Levantar:  uvicorn main:app --reload --port 8002
+Desarrollo:  uvicorn main:app --reload --port 8002
+Produccion:  gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:$PORT
 """
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -39,5 +42,5 @@ def raiz():
         "version": "1.0.0",
         "estado": "ok",
         "docs": "/docs",
-        "puerto": settings.PORT,
+        "puerto": int(os.environ.get("PORT", settings.PORT)),
     }

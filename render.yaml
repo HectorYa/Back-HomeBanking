@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: homebanking-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 480
+      - key: PORT
+        value: 10000
+      - key: CORS_ORIGINS
+        sync: false

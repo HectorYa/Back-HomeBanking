@@ -1,4 +1,4 @@
-"""Carga de configuración desde .env usando pydantic-settings."""
+"""Carga de configuración desde .env (desarrollo) o variables de entorno (producción/Render)."""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
