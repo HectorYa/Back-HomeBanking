@@ -78,32 +78,67 @@ def listar_movimientos(conn: Connection, pkcuentaahorro: int, limit: int) -> lis
     return [dict(r) for r in conn.execute(sql, {"pk": pkcuentaahorro, "lim": limit}).mappings().all()]
 
 
+def _monto_desembolso_operacion(conn: Connection, pkcuentacredito: int) -> float:
+    """Obtiene el monto desembolsado desde foperaciones (para créditos nuevos sin snapshot)."""
+    return conn.execute(
+        text("""
+            SELECT COALESCE(SUM(montooperacion), 0)
+            FROM foperaciones
+            WHERE pkcuentacredito = :pk AND codtipkar = 'CR'
+              AND codkardex LIKE 'DESEMB-CRED-%'
+        """),
+        {"pk": pkcuentacredito},
+    ).scalar()
+
+
 def listar_creditos(conn: Connection, pkcliente: int) -> list[dict]:
     """Créditos del cliente. Usa el último snapshot disponible de fagcuentacredito.
-    Los créditos nuevos (aún no en snapshot) aparecen igual con valores por defecto.
+    Los créditos nuevos (aún no en snapshot) obtienen el monto desde foperaciones.
     """
     periodo = _ultimo_periodo_cartera(conn)
-    sql = text(
-        """
-        SELECT cr.codcuentacredito,
-               COALESCE(fa.fechadesembolsocredito, CURRENT_DATE)  AS fecha_desembolso,
-               COALESCE(fa.montosaldocapital, 0)                 AS saldo_capital,
-               COALESCE(fa.montosaldocliente, 0)                 AS pago_pendiente,
-               COALESCE(fa.diasatrasocredito, 0)                 AS dias_atraso,
-               COALESCE(cal.descalificacioncrediticia, 'Normal') AS calificacion
-        FROM dcuentacredito cr
-        LEFT JOIN fagcuentacredito fa
-          ON fa.pkcuentacredito = cr.pkcuentacredito AND fa.periodomes = :periodo
-        LEFT JOIN dcalificacioncrediticia cal
-          ON cal.pkcalificacioncrediticia = fa.pkcalificacioncrediticiainterna
-        WHERE cr.pkcliente = :pk
-        ORDER BY cr.codcuentacredito
-        """
-    )
-    return [
-        dict(r)
-        for r in conn.execute(sql, {"pk": pkcliente, "periodo": periodo}).mappings().all()
-    ]
+    rows = conn.execute(
+        text("""
+            SELECT cr.pkcuentacredito,
+                   cr.codcuentacredito,
+                   fa.fechadesembolsocredito,
+                   fa.montosaldocapital,
+                   fa.montosaldocliente,
+                   fa.diasatrasocredito,
+                   cal.descalificacioncrediticia AS calificacion,
+                   (fa.pkcuentacredito IS NOT NULL) AS en_snapshot
+            FROM dcuentacredito cr
+            LEFT JOIN fagcuentacredito fa
+              ON fa.pkcuentacredito = cr.pkcuentacredito AND fa.periodomes = :periodo
+            LEFT JOIN dcalificacioncrediticia cal
+              ON cal.pkcalificacioncrediticia = fa.pkcalificacioncrediticiainterna
+            WHERE cr.pkcliente = :pk
+            ORDER BY cr.codcuentacredito
+        """),
+        {"pk": pkcliente, "periodo": periodo},
+    ).mappings().all()
+
+    result = []
+    for r in rows:
+        if r["en_snapshot"]:
+            result.append({
+                "codcuentacredito": r["codcuentacredito"],
+                "fecha_desembolso": r["fechadesembolsocredito"],
+                "saldo_capital": float(r["montosaldocapital"] or 0),
+                "pago_pendiente": float(r["montosaldocliente"] or 0),
+                "dias_atraso": int(r["diasatrasocredito"] or 0),
+                "calificacion": r["calificacion"] or "Normal",
+            })
+        else:
+            monto = _monto_desembolso_operacion(conn, r["pkcuentacredito"])
+            result.append({
+                "codcuentacredito": r["codcuentacredito"],
+                "fecha_desembolso": None,
+                "saldo_capital": monto,
+                "pago_pendiente": monto,
+                "dias_atraso": 0,
+                "calificacion": "Normal",
+            })
+    return result
 
 
 def buscar_cuenta_credito(conn: Connection, codcuentacredito: str) -> dict | None:
