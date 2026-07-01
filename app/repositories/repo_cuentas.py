@@ -2,8 +2,12 @@
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-# Periodo de la cartera de créditos (fagcuentacredito) verificado en la BD.
-PERIODO_CARTERA = 202512
+
+def _ultimo_periodo_cartera(conn: Connection) -> int:
+    """Retorna el último periodomes disponible en fagcuentacredito."""
+    return conn.execute(
+        text("SELECT COALESCE(MAX(periodomes), 202512) FROM fagcuentacredito")
+    ).scalar()
 
 
 def listar_ahorros(conn: Connection, pkcliente: int) -> list[dict]:
@@ -75,20 +79,20 @@ def listar_movimientos(conn: Connection, pkcuentaahorro: int, limit: int) -> lis
 
 
 def listar_creditos(conn: Connection, pkcliente: int) -> list[dict]:
-    """Créditos del cliente en el periodo de cartera (fagcuentacredito).
-
-    'pago_pendiente' = montosaldocliente (saldo total que el cliente adeuda).
+    """Créditos del cliente. Usa el último snapshot disponible de fagcuentacredito.
+    Los créditos nuevos (aún no en snapshot) aparecen igual con valores por defecto.
     """
+    periodo = _ultimo_periodo_cartera(conn)
     sql = text(
         """
         SELECT cr.codcuentacredito,
-               fa.fechadesembolsocredito  AS fecha_desembolso,
-               fa.montosaldocapital       AS saldo_capital,
-               fa.montosaldocliente       AS pago_pendiente,
-               fa.diasatrasocredito       AS dias_atraso,
-               cal.descalificacioncrediticia AS calificacion
+               COALESCE(fa.fechadesembolsocredito, CURRENT_DATE)  AS fecha_desembolso,
+               COALESCE(fa.montosaldocapital, 0)                 AS saldo_capital,
+               COALESCE(fa.montosaldocliente, 0)                 AS pago_pendiente,
+               COALESCE(fa.diasatrasocredito, 0)                 AS dias_atraso,
+               COALESCE(cal.descalificacioncrediticia, 'Normal') AS calificacion
         FROM dcuentacredito cr
-        JOIN fagcuentacredito fa
+        LEFT JOIN fagcuentacredito fa
           ON fa.pkcuentacredito = cr.pkcuentacredito AND fa.periodomes = :periodo
         LEFT JOIN dcalificacioncrediticia cal
           ON cal.pkcalificacioncrediticia = fa.pkcalificacioncrediticiainterna
@@ -98,12 +102,13 @@ def listar_creditos(conn: Connection, pkcliente: int) -> list[dict]:
     )
     return [
         dict(r)
-        for r in conn.execute(sql, {"pk": pkcliente, "periodo": PERIODO_CARTERA}).mappings().all()
+        for r in conn.execute(sql, {"pk": pkcliente, "periodo": periodo}).mappings().all()
     ]
 
 
 def buscar_cuenta_credito(conn: Connection, codcuentacredito: str) -> dict | None:
-    """Datos base de un crédito + agencia/moneda/producto/asesor del periodo de cartera."""
+    """Datos base de un crédito + agencia/moneda/producto/asesor del último snapshot."""
+    periodo = _ultimo_periodo_cartera(conn)
     sql = text(
         """
         SELECT cr.pkcuentacredito, cr.pkcliente, cr.codcuentacredito,
@@ -115,7 +120,7 @@ def buscar_cuenta_credito(conn: Connection, codcuentacredito: str) -> dict | Non
         """
     )
     row = conn.execute(
-        sql, {"cod": codcuentacredito, "periodo": PERIODO_CARTERA}
+        sql, {"cod": codcuentacredito, "periodo": periodo}
     ).mappings().first()
     return dict(row) if row else None
 

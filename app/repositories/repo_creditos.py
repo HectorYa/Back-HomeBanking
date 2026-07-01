@@ -7,11 +7,15 @@ from decimal import Decimal
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from app.repositories.repo_cuentas import PERIODO_CARTERA
-
 # codtipocredito del portal -> codtipocredito en dproducto
 MAPA_TIPO_CREDITO = {"ME": "01", "CO": "03"}  # ME=Microempresa, CO=Consumo
 ESTADO_EN_EVALUACION = "01"  # dsolicitudestado.codsolicitudestado
+
+
+def _ultimo_periodo(conn: Connection) -> int:
+    return conn.execute(
+        text("SELECT COALESCE(MAX(periodomes), 202512) FROM fagcuentacredito")
+    ).scalar()
 
 
 def _pk_producto_por_tipo(conn: Connection, cod_tipo_producto: str) -> int | None:
@@ -42,6 +46,7 @@ def _pk_actividad(conn: Connection, cod: str) -> int | None:
 
 def _agencia_asesor_del_cliente(conn: Connection, pkcliente: int) -> tuple[int, int]:
     """Toma agencia/asesor del crédito vigente del cliente; si no tiene, usa valores por defecto."""
+    periodo = _ultimo_periodo(conn)
     row = conn.execute(
         text(
             """
@@ -50,7 +55,7 @@ def _agencia_asesor_del_cliente(conn: Connection, pkcliente: int) -> tuple[int, 
             ORDER BY pkcuentacredito DESC LIMIT 1
             """
         ),
-        {"pk": pkcliente, "periodo": PERIODO_CARTERA},
+        {"pk": pkcliente, "periodo": periodo},
     ).first()
     if row:
         return row[0], row[1]
@@ -64,6 +69,7 @@ def upsert_fuente_ingreso(
     conn: Connection, pkcliente: int, montoingresoneto: Decimal, pkactividad: int | None
 ) -> None:
     """Registra el ingreso del cliente (PK compuesta pkcliente+periodomes) de forma idempotente."""
+    periodo = _ultimo_periodo(conn)
     conn.execute(
         text(
             """
@@ -76,7 +82,7 @@ def upsert_fuente_ingreso(
                           fecultactualizacion = now()
             """
         ),
-        {"pk": pkcliente, "periodo": PERIODO_CARTERA, "monto": montoingresoneto, "act": pkactividad},
+        {"pk": pkcliente, "periodo": periodo, "monto": montoingresoneto, "act": pkactividad},
     )
 
 
