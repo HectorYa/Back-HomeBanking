@@ -85,7 +85,7 @@ def _monto_desembolso_operacion(conn: Connection, pkcuentacredito: int) -> float
             SELECT COALESCE(SUM(montooperacion), 0)
             FROM foperaciones
             WHERE pkcuentacredito = :pk AND codtipkar = 'CR'
-              AND codkardex LIKE 'DESEMB-CRED-%'
+              AND codkardex LIKE 'DESEMB-%'
         """),
         {"pk": pkcuentacredito},
     ).scalar()
